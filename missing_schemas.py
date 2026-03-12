@@ -85,6 +85,49 @@ def MAR2(X, Y, missing_rate):
 
     return X, Y_obs
 
+def MNAR(X, Y, missing_rate):
+
+    """
+    Function implementing the Missing Not At Random (MNAR) schema in Y - assumes that the missing data mechanism depends on both explanatory variables and target variable.
+    Adapting the MAR2 schema but adding the influence of value of Y.
+    Observations with Y=1 have increased probability of being missing (gamma_1 > 0),
+    observations with Y=0 have decreased probability of being missing (gamma_0 < 0).
+
+    Parameters:
+        X: pd.DataFrame - explanatory variables
+        Y: pd.Series - target variable
+        missing_rate: float - fraction of missing Y
+
+    Returns:
+        X: pd.DataFrame (unchanged)
+        Y_obs: pd.Series - Y with -1 where Y is missing
+    """
+
+    Y_obs = Y.copy()
+    n = len(Y)
+    n_missing = int(n * missing_rate)
+
+    gamma_0 = -0.5 #added score when Y=0 (negative = less likely missing)
+    gamma_1 = 2.0 #added score when Y=1 (positive = more likely missing)
+
+    #the same as in the MAR2 schema
+    X_array = np.array(X)
+    X_standardized = (X_array - X_array.mean(axis=0)) / (X_array.std(axis=0) + 1e-6)  # standarization (bcs if there is one column with high values it would have bigger influance than the one with smaller values)
+    x_score = X_standardized.sum(axis=1)
+
+    #asymmetrical influence from both classes in Y
+    y_score = np.where(np.array(Y) == 1, gamma_1, gamma_0)
+
+    combined_score = x_score+y_score
+
+    weights = combined_score - combined_score.min() + 1e-6
+    probabilities = weights / weights.sum()
+
+    missing_indices = np.random.choice(a=n, size=n_missing, replace=False, p=probabilities)
+    Y_obs.iloc[missing_indices] = -1
+
+    return X, Y_obs
+
 def generate_missing_y(X, Y, scheme, missing_rate):
 
     """
@@ -114,13 +157,13 @@ def generate_missing_y(X, Y, scheme, missing_rate):
     if scheme == "MCAR":
         X, Y_obs = MCAR(X=X, Y=Y, missing_rate=missing_rate)
 
-    if scheme == "MAR1":
+    elif scheme == "MAR1":
         X, Y_obs = MAR1(X=X, Y=Y, missing_rate=missing_rate)
     
-    if scheme == "MAR2":
+    elif scheme == "MAR2":
         X, Y_obs = MAR2(X=X, Y=Y, missing_rate=missing_rate)
     
-    if scheme == "MNAR":
+    elif scheme == "MNAR":
         raise NotImplementedError("Scheme {scheme} to be implemented.")
 
 
