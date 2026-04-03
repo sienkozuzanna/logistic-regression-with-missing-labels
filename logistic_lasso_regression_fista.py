@@ -37,7 +37,8 @@ class LogisticLassoRegressionFISTA:
             float - computed step size
         """
         n = X.shape[0]
-        spectral_norm = np.linalg.norm(X, 2)
+        X_aug = np.hstack([X, np.ones((n, 1))])   # including inptercept in computing step size - without it it's too large
+        spectral_norm = np.linalg.norm(X_aug, 2)
         L = (spectral_norm ** 2) / (4.0 * n)
         return 1.0 / (L + 1e-12)
 
