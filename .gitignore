@@ -3,3 +3,4 @@ data/.ipynb_checkpoints/college
 data/.ipynb_checkpoints/electricity
 data/.ipynb_checkpoints/employee
 .DS_Store
+__pycache__
