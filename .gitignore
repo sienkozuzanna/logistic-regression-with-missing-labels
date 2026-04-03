@@ -1,3 +1,4 @@
-data/college
-data/spambase
+data/.ipynb_checkpoints/spambase
+data/.ipynb_checkpoints/college
+data/.ipynb_checkpoints/electricity
 .DS_Store
