@@ -1,16 +1,39 @@
 import numpy as np
+from sklearn.metrics import recall_score, precision_score, f1_score, balanced_accuracy_score, roc_auc_score, average_precision_score
+import matplotlib.pyplot as plt
 
 class LogisticLassoRegressionFISTA:
-    def __init__(self, lambda_=1.0, max_iter=1000, stop_condition=1e-6, step_size=None):
-        self.lambda_ = lambda_
+
+    SUPPORTED_MEASURES = {"recall", "precision", "f1", "balanced_accuracy", "roc_auc", "avg_precision"}
+
+    def __init__(self, lambdas=None, measure="roc_auc",max_iter=1000, stop_condition=1e-6, step_size=None):
+        """
+        Initializes the LogisticLassoRegressionFISTA model.
+
+        Parameters:
+            lambdas: list or np.ndarray - array of lambda values to try during fitting (if None, a default logarithmic grid will be used)
+            measure: str - evaluation metric to use for selecting the best lambda during validation (default is "roc_auc")
+            max_iter: int - maximum number of iterations for the FISTA optimization (default is 1000)
+            stop_condition: float - threshold for stopping the optimization based on parameter change (default is 1e-6)
+            step_size: float or None - step size for gradient updates (if None, it will be computed based on Lipschitz constant estimation)
+        """
+       
+        if lambdas is None:
+            self.lambdas = np.logspace(-4, 1, 50)
+        else:
+            self.lambdas = np.atleast_1d(lambdas)
+
+        self.measure = measure
         self.max_iter = max_iter
         self.stop_condition = stop_condition
         self.step_size = step_size
 
+        self.coef_paths_ = {} 
+        self.intercept_paths_ = {}
+
         self.beta_ = None
         self.intercept_ = None
-        self.objective_history_ = []
-        self.n_iter_ = 0
+        self.best_lambda_ = None
 
     def _sigmoid(self, x):
         """
@@ -107,7 +130,7 @@ class LogisticLassoRegressionFISTA:
         loss = -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
         return loss
     
-    def _objective(self, X, y):
+    def _objective(self, X, y, beta, intercept):
         """
         Calculates full objective function:
             logistic_loss + lambda * |beta|
@@ -119,13 +142,48 @@ class LogisticLassoRegressionFISTA:
         Returns:
             float - value of the full objective function
         """
-        loss = self._compute_logistic_loss(X=X, y=y, beta=self.beta_, intercept=self.intercept_)
-        L1_penalty = self.lambda_ * np.sum(np.abs(self.beta_))
+        loss = self._compute_logistic_loss(X=X, y=y, beta=beta, intercept=intercept)
+        L1_penalty = self.lambda_ * np.sum(np.abs(beta))
         return loss + L1_penalty
+    
+    def _compute_metric(self, y_true, proba, measure):
+        """
+        Computes the specified evaluation metric based on true labels and predicted probabilities.
 
-    def fit(self, X_train, y_train):
-        X = np.array(X_train)
-        y = np.array(y_train)
+        Parameters:
+            y_true: np.ndarray - true binary labels
+            proba: np.ndarray - predicted probabilities for class 1
+            measure: str - name of the metric to compute
+
+        Returns:
+            float - computed metric value
+        """
+        y_pred = (proba >= 0.5).astype(int)
+        if measure == "recall":
+            return recall_score(y_true, y_pred, zero_division=0)
+        elif measure == "precision":
+            return precision_score(y_true, y_pred, zero_division=0)
+        elif measure == "f1":
+            return f1_score(y_true, y_pred, zero_division=0)
+        elif measure == "balanced_accuracy":
+            return balanced_accuracy_score(y_true, y_pred)
+        elif measure == "roc_auc":
+            return roc_auc_score(y_true, proba) if len(np.unique(y_true)) > 1 else float("nan")
+        elif measure == "avg_precision":
+            return average_precision_score(y_true, proba)
+        raise ValueError(f"Unknown measure: {measure}. Choose from {self.SUPPORTED_MEASURES}")
+
+    def _fit_single(self, X, y):
+        """
+        Fits the logistic regression model with L1 regularization for a single value of lambda using FISTA optimization.
+
+        Parameters:
+            X: pd.DataFrame - explanatory variables
+            y: pd.Series - target variable
+        Returns:
+            tuple - fitted parameters (beta, intercept)
+        
+        """
 
         _, p = X.shape
 
@@ -172,27 +230,177 @@ class LogisticLassoRegressionFISTA:
 
             t = t_new
 
-            self.beta_ = beta.copy()
-            self.intercept_ = intercept
-            self.objective_history_.append(self._objective(X=X, y=y))
+            self.objective_history_.append(self._objective(X, y, beta, intercept))
 
             param_change = np.linalg.norm(beta - beta_prev) + abs(intercept - intercept_prev)
             if param_change < self.stop_condition:
-                self.n_iter_ = i + 1
+                self.n_iter_ = i+1
                 self.beta_ = beta
                 self.intercept_ = intercept
-                return self
+                break
+            
+        else:
+            self.n_iter_ = self.max_iter
+            self.beta_ = beta
+            self.intercept_ = intercept
+            
+        return beta, intercept
+
+
+    def fit(self, X_train, y_train):
+        """
+        Fits the logistic regression model with L1 regularization using FISTA optimization.
+
+        Parameters:
+            X_train: pd.DataFrame - training explanatory variables
+            y_train: pd.Series - training target variable
+        """
+        X = np.array(X_train)
+        y = np.array(y_train)
+
+        for lam in self.lambdas:
+            self.lambda_ = lam
+            beta, intercept = self._fit_single(X, y)
+            
+            self.coef_paths_[lam] = beta
+            self.intercept_paths_[lam] = intercept
         
-        self.n_iter_ = self.max_iter
-        self.beta_ = beta
-        self.intercept_ = intercept
-
         return self
-
+    
+    
     def predict_proba(self, X_test):
         """
         Returns predicted probabilities for class 1.
         """
+        if self.beta_ is None:
+            raise RuntimeError("Model parameters are not set. You must call validate() before predict_proba() to select the best lambda.")
         X = np.array(X_test)
         scores = X @ self.beta_ + self.intercept_
         return self._sigmoid(scores)
+    
+    
+    def validate(self, X_valid, y_valid, measure=None):
+        """
+        Evaluates the model on the validation set using the specified measure.
+
+        Parameters:
+            X_valid: pd.DataFrame - validation explanatory variables
+            y_valid: pd.Series - validation target variable
+            measure: str - name of the metric to compute (optional, if not provided, uses the measure specified during initialization)
+
+        Returns:
+            float - computed metric value on the validation set
+        """
+
+        measure = measure if measure is not None else self.measure
+        if measure not in self.SUPPORTED_MEASURES:
+            raise ValueError(f"Unsupported measure: {measure}. Choose from {self.SUPPORTED_MEASURES}")
+        
+        X_valid = np.array(X_valid)
+        y_valid = np.array(y_valid)
+
+        self.val_scores_ = {}
+
+        for lam in self.lambdas:
+            beta = self.coef_paths_[lam]
+            intercept = self.intercept_paths_[lam]
+            
+            proba = self._sigmoid(X_valid @ beta + intercept)
+            score = self._compute_metric(y_valid, proba, measure)
+            self.val_scores_[lam] = score
+
+        self.best_lambda_ = max(self.val_scores_, key=self.val_scores_.get)
+
+        self.lambda_ = self.best_lambda_
+        self.beta_ = self.coef_paths_[self.best_lambda_]
+        self.intercept_ = self.intercept_paths_[self.best_lambda_]
+
+        return self.val_scores_[self.best_lambda_]
+
+
+# ------------------------- PLOTS -------------------------
+
+    def plot(self, X_valid, y_valid, measure = None):
+        """
+        Plot the evaluation measure as a function of lambda.
+        
+        Parameters:
+            X_valid: validation features
+            y_valid: validation labels
+            measure: metric to plot (optional, default is self.measure)
+        """
+
+        measure = measure if measure is not None else self.measure
+        measures_names = {
+            "roc_auc": "ROC AUC",
+            "f1": "F1 Score",
+            "precision": "Precision",
+            "recall": "Recall",
+            "balanced_accuracy": "Balanced Accuracy",
+            "avg_precision": "Average Precision"
+        }
+        display_name = measures_names.get(measure, measure.replace('_', ' ').title())
+
+        scores = []
+
+        for lam in self.lambdas:
+            beta = self.coef_paths_[lam]
+            intercept = self.intercept_paths_[lam]
+            proba_predictions = self._sigmoid(X_valid @ beta + intercept)
+            score = self._compute_metric(y_valid, proba_predictions, measure)
+            scores.append(score)
+
+        plt.figure(figsize=(10, 6))
+        plt.style.use('seaborn-v0_8-whitegrid')
+
+        plt.semilogx(self.lambdas, scores, marker='o', markersize=5, linestyle='-', 
+                 linewidth=2, color='#2c7bb6', label=f'Validation {display_name}')
+        
+        if self.best_lambda_ is not None:
+            best_score = self.val_scores_[self.best_lambda_]
+            plt.axvline(x=self.best_lambda_, color='#d7191c', linestyle='--', alpha=0.8,
+                        label=fr'Optimal $\lambda$ = {self.best_lambda_:.4e}')
+            plt.scatter(self.best_lambda_, best_score, color='#d7191c', s=100, zorder=5)
+
+        plt.xlabel(fr"Regularization Parameter ($\lambda$)", fontsize=12)
+        plt.ylabel(display_name, fontsize=12)
+        plt.title(fr"{display_name} vs $\lambda$", fontsize=17, pad=15)
+        plt.grid(True, which="both", ls="-", alpha=0.5)
+        plt.legend(frameon=True, loc='best', fontsize=10)
+        plt.gca().spines['top'].set_visible(False)
+        plt.gca().spines['right'].set_visible(False)
+        plt.tight_layout()
+        plt.show()
+
+
+    def plot_coefficients(self):
+        """
+        Produces plot showing the coefficient values as function of lambda parameter.
+        """
+  
+        lams = sorted(self.coef_paths_.keys())
+        coefs = np.array([self.coef_paths_[l] for l in lams])
+        
+        plt.figure(figsize=(12, 7))
+        plt.style.use('seaborn-v0_8-whitegrid')
+        
+        plt.semilogx(lams, coefs, linewidth=1.5, alpha=0.7)
+
+        if self.best_lambda_ is not None:
+            plt.axvline(x=self.best_lambda_, color='#d7191c', linestyle='--', 
+                        linewidth=2, label=fr'Optimal $\lambda$ ({self.best_lambda_:.2e})')
+        
+        plt.xlabel(r"Regularization Parameter ($\lambda$)", fontsize=12)
+        plt.ylabel(r"Coefficient Values ($\beta$)", fontsize=12)
+        plt.title("Lasso Path: Coefficients Shrinking to Zero", fontsize=14)
+        
+        plt.text(0.02, 0.95, f"Total predictors: {coefs.shape[1]}", 
+                transform=plt.gca().transAxes, fontsize=10, 
+                bbox=dict(facecolor='white', alpha=0.5))
+        
+        plt.grid(True, which="both", ls="-", alpha=0.3)
+        plt.legend(loc='upper right', frameon=True)
+        plt.gca().spines['top'].set_visible(False)
+        plt.gca().spines['right'].set_visible(False)
+        plt.tight_layout()
+        plt.show()
