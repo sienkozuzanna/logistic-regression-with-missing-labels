@@ -46,7 +46,7 @@ def MAR1(X, Y, missing_rate):
     n = len(Y)
     n_missing= int(n * missing_rate)
 
-    feature = X[:, 0]
+    feature = X.iloc[:, 0]
     weights = feature - feature.min() + 1e-6
     probabilities = weights / weights.sum()   # the bigger the value the higher probability it is going to be changed to missing - dependence on one feature
 
