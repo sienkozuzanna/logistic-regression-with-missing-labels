@@ -40,7 +40,10 @@ model = LogisticLassoRegressionFISTA(
 ```
 
 ### 3. Fit the model
-Fit the model by running: `model.fit(X_train, y_train)`
+Fit the model by running: 
+```python
+model.fit(X_train, y_train)
+```
 
 This step fits the model for all candidate values of the regularization parameter &lambda.
 
