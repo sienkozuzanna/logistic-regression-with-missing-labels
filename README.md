@@ -42,9 +42,12 @@ model = LogisticLassoRegressionFISTA(
 #### Model parameters
 The following parameters can be specified:
 - `lambdas` (*array-like or None*)
+  
   A list or array of regularization parameters (&lambda) to evaluate.
+  
   If `None`, a default logarithmic grid is used: &lambda; &isin; [10<sup>-4</sup>, 10<sup>1</sup>]
 - `measure` (*str*)
+  
   Evaluation metric used to select the best &lambda on the test set.
 
   Options:
@@ -55,10 +58,13 @@ The following parameters can be specified:
   - `"balanced_accuracy"`
   - `"avg_precision"`
 - `max_iter` (*int*)
+  
   Maximum number of iterations of the FISTA optimization algorithm.
 - `stop_condition` (*float*)
+  
   Convergence threshold based on the change in model parameters between iterations.
 - `step_size` (*float or None*)
+  
   Step size used in gradient updates.
   
   If `None`, it is automatically computed based on an estimate of the Lipschitz constant of the gradient.
