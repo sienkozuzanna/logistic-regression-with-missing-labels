@@ -164,7 +164,7 @@ def generate_missing_y(X, Y, scheme, missing_rate):
         X, Y_obs = MAR2(X=X, Y=Y, missing_rate=missing_rate)
     
     elif scheme == "MNAR":
-        raise NotImplementedError("Scheme {scheme} to be implemented.")
+        X, Y_obs = MNAR(X=X, Y=Y, missing_rate=missing_rate)
 
 
     return X, Y_obs
