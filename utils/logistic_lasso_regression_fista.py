@@ -19,7 +19,7 @@ class LogisticLassoRegressionFISTA:
         """
        
         if lambdas is None:
-            self.lambdas = np.logspace(-4, 1, 50)
+            self.lambdas = np.logspace(-4, 1, 20)
         else:
             self.lambdas = np.atleast_1d(lambdas)
 
@@ -221,6 +221,7 @@ class LogisticLassoRegressionFISTA:
                 x=beta_temp, 
                 threshold=step * self.lambda_,
             )
+           
             intercept = intercept_temp
 
             t_new = 0.5 * (1 + np.sqrt(1 + 4 * t**2))
