@@ -7,9 +7,9 @@ The project consists of three main parts:
 3. Semi-supervised techniques for handling missing labels and comparison with naive and oracle methods.
 
 ## Repository structure
-- `utils/missing_schemes.py` - generation og MCAR, MAR1, MAR2 and MNAR missing labels
+- `utils/missing_schemes.py` - generation of MCAR, MAR1, MAR2 and MNAR missing labels
 - `utils/logistic_lasso_regression_fista.py` - custom FISTA implementation
 - `utils/unlabled_log_reg.py` - semi-supervised, naive and oracle methods
 - `notebooks/` - demonstration notebooks and experiments
-- `data/` - data used in experiments (kept in .gitignore and not stored in the repository - can be loaded from `notebooks/fetch_data.ipynb`)
+- `data/` - data used in experiments (kept in `.gitignore` and not stored in the repository - can be loaded from `notebooks/fetch_data.ipynb`)
 - `README.md` - project description and usage instruction
