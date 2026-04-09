@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, dump, load
+import tempfile, os
+import shutil
+from threadpoolctl import threadpool_limits
 
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler
@@ -20,7 +23,7 @@ def apply_missing_schema(X, y, schema_name, missing_rate):
         return MNAR(X, y, missing_rate)
     else:
         raise ValueError(f"Unknown schema: {schema_name}")
-    
+
 def run_single_fold(X, y, train_idx, test_idx, schema_name, missing_rate, n_neighbors, dataset_name):
 
     X_train_full = X.iloc[train_idx]
@@ -86,8 +89,10 @@ def run_full_experiment(X, y, dataset_name="SpamDataset", missing_rates=[0.3, 0.
 
     return pd.DataFrame(all_results)
 
+
 #parallel version of the full experiment
 def run_full_experiment_parallel(X, y, dataset_name="SpamDataset", missing_rates=[0.3, 0.5, 0.8]):
+    
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     
     tasks = []
@@ -103,10 +108,11 @@ def run_full_experiment_parallel(X, y, dataset_name="SpamDataset", missing_rates
                 })
 
     print(f"[INFO] Starting parallel execution for {len(tasks)} tasks...")
+    
+    with threadpool_limits(limits=1, user_api='blas'):
+        all_results_nested = Parallel(n_jobs=6, backend="loky", batch_size=1, verbose=10)(delayed(run_single_fold_wrapper)(X, y, t, dataset_name) for t in tasks)
 
-    all_results_nested = Parallel(n_jobs=-1, verbose=10)(delayed(run_single_fold_wrapper)(X, y, t, dataset_name) for t in tasks)
     all_results = [item for sublist in all_results_nested for item in sublist]
-
     return pd.DataFrame(all_results)
 
 def run_single_fold_wrapper(X, y, task, dataset_name):
