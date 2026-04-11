@@ -1,12 +1,15 @@
 import numpy as np
 from sklearn.metrics import recall_score, precision_score, f1_score, balanced_accuracy_score, roc_auc_score, average_precision_score
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.linear_model import LogisticRegression
+import pandas as pd
 
 class LogisticLassoRegressionFISTA:
 
     SUPPORTED_MEASURES = {"recall", "precision", "f1", "balanced_accuracy", "roc_auc", "avg_precision"}
 
-    def __init__(self, lambdas=None, measure="roc_auc",max_iter=1000, stop_condition=1e-6, step_size=None):
+    def __init__(self, lambdas=None, measure="roc_auc", max_iter=1000, stop_condition=1e-6, step_size=None):
         """
         Initializes the LogisticLassoRegressionFISTA model.
 
@@ -318,7 +321,6 @@ class LogisticLassoRegressionFISTA:
 
         return self.val_scores_[self.best_lambda_]
 
-
 # ------------------------- PLOTS -------------------------
 
     def plot(self, X_valid, y_valid, measure = None):
@@ -405,3 +407,151 @@ class LogisticLassoRegressionFISTA:
         plt.gca().spines['right'].set_visible(False)
         plt.tight_layout()
         plt.show()
+
+
+
+def compute_metric(y_true, proba, measure):
+    y_pred = (proba >= 0.5).astype(int)
+
+    if measure == "recall":
+        return recall_score(y_true, y_pred, zero_division=0)
+    elif measure == "precision":
+        return precision_score(y_true, y_pred, zero_division=0)
+    elif measure == "f1":
+        return f1_score(y_true, y_pred, zero_division=0)
+    elif measure == "balanced_accuracy":
+        return balanced_accuracy_score(y_true, y_pred)
+    elif measure == "roc_auc":
+        return roc_auc_score(y_true, proba) if len(np.unique(y_true)) > 1 else np.nan
+    elif measure == "avg_precision":
+        return average_precision_score(y_true, proba)
+    else:
+        raise ValueError(f"Unsupported measure: {measure}")
+    
+def compute_all_metrics(y_true, proba):
+    y_pred = (proba >= 0.5).astype(int)
+
+    return {
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+        "roc_auc": roc_auc_score(y_true, proba) if len(np.unique(y_true)) > 1 else np.nan,
+        "avg_precision": average_precision_score(y_true, proba),
+    }
+
+def compare_fista_with_sklearn(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        lambdas,
+        dataframe,
+        measure="roc_auc",
+        max_iter=1000, 
+        stop_condition=1e-6,
+):
+    scaler = MinMaxScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s = scaler.transform(X_test)
+
+    y_train = np.array(y_train)
+    y_test = np.array(y_test)
+    lambdas = np.array(lambdas)
+
+    fista = LogisticLassoRegressionFISTA(
+        lambdas=lambdas,
+        measure=measure,
+        max_iter=max_iter,
+        stop_condition=stop_condition,
+    )
+    fista.fit(X_train=X_train_s, y_train=y_train)
+    fista_best_score = fista.validate(X_valid=X_test_s, y_valid=y_test)
+    
+    fista_test_proba = fista.predict_proba(X_test=X_test_s)
+    fista_all_metrics = compute_all_metrics(y_true=y_test, proba=fista_test_proba)
+
+    sklearn_scores = {}
+    sklearn_models = {}
+
+    for lam in lambdas:
+        C = 1.0 / lam
+
+        clf = LogisticRegression(
+            penalty="l1",
+            solver="saga",
+            C=C,
+            fit_intercept=True,
+            max_iter=max_iter,
+            tol=stop_condition,
+            random_state=42,
+        )
+
+        clf.fit(X=X_train_s, y=y_train)
+
+        proba_valid = clf.predict_proba(X=X_test_s)[:, 1]
+        val_score = compute_metric(y_true=np.array(y_test), proba=proba_valid, measure=measure)
+
+        sklearn_scores[lam] = val_score
+        sklearn_models[lam] = clf
+
+    sklearn_best_lambda = max(sklearn_scores, key=sklearn_scores.get)
+    sklearn_best_model = sklearn_models[sklearn_best_lambda]
+    sklearn_best_score = sklearn_scores[sklearn_best_lambda]
+
+    sklearn_test_proba = sklearn_best_model.predict_proba(X_test_s)[:, 1]
+    sklearn_all_metrics = compute_all_metrics(y_test, sklearn_test_proba)
+
+    fista_coef = fista.beta_
+    fista_intercept = fista.intercept_
+
+    sklearn_coef = sklearn_best_model.coef_.ravel()
+    sklearn_intercept = sklearn_best_model.intercept_[0]
+
+    comparison = {
+        "dataframe": dataframe,
+
+        "measure_used_for_lambda_selection": measure,
+
+        "fista_best_lambda": fista.best_lambda_,
+        "fista_best_score_on_test": fista_best_score,
+        "fista_nonzero_coef": int(np.sum(np.abs(fista_coef) > 1e-8)),
+        "fista_intercept": float(fista_intercept),
+
+        "sklearn_best_lambda_equiv": sklearn_best_lambda,
+        "sklearn_best_C": float(1.0 / sklearn_best_lambda),
+        "sklearn_best_score_on_test": sklearn_best_score,
+        "sklearn_nonzero_coef": int(np.sum(np.abs(sklearn_coef) > 1e-8)),
+        "sklearn_intercept": float(sklearn_intercept),
+
+        "l2_distance_between_coefs": float(np.linalg.norm(fista_coef - sklearn_coef)),
+        "max_abs_difference_between_coefs": float(np.max(np.abs(fista_coef - sklearn_coef))),
+    }
+
+    metrics_df = pd.DataFrame([
+        {
+            "dataframe": dataframe,
+            "model": "FISTA",
+            "recall": fista_all_metrics["recall"],
+            "precision": fista_all_metrics["precision"],
+            "f1": fista_all_metrics["f1"],
+            "balanced_accuracy": fista_all_metrics["balanced_accuracy"],
+            "roc_auc": fista_all_metrics["roc_auc"],
+            "avg_precision": fista_all_metrics["avg_precision"],
+        },
+        {
+            "dataframe": dataframe,
+            "model": "sklearn",
+            "recall": sklearn_all_metrics["recall"],
+            "precision": sklearn_all_metrics["precision"],
+            "f1": sklearn_all_metrics["f1"],
+            "balanced_accuracy": sklearn_all_metrics["balanced_accuracy"],
+            "roc_auc": sklearn_all_metrics["roc_auc"],
+            "avg_precision": sklearn_all_metrics["avg_precision"],
+        }
+    ])
+
+    comparison_df = pd.DataFrame([comparison])
+
+    return comparison_df, metrics_df, fista, sklearn_best_model
+
