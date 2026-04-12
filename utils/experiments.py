@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed, dump, load
-import tempfile, os
-import shutil
+from joblib import Parallel, delayed
+
 from threadpoolctl import threadpool_limits
 
 from sklearn.model_selection import train_test_split, StratifiedKFold
@@ -12,6 +11,19 @@ from utils.missing_schemas import MCAR, MAR1, MAR2, MNAR
 from utils.unlabeled_log_reg import UnlabeledLogReg, OracleLogReg, NaiveLogReg
 
 def apply_missing_schema(X, y, schema_name, missing_rate):
+    """
+    Apply a missing data schema to the feature matrix.
+
+    Parameters:
+        X : pd.DataFrame - feature matrix.
+        y : pd.Series - target labels.
+        schema_name : str - missing data schema to apply, one of: 'MCAR', 'MAR1', 'MAR2', 'MNAR'.
+        missing_rate : float - fraction of labels to mask as unlabeled, in range (0, 1).
+    Returns:
+        tuple - feature matrix (unchanged) and target labels with some values masked as unlabeled.
+    Raises:
+        ValueError - if schema_name is not one of the supported schemas.
+    """
 
     if schema_name == "MCAR":
         return MCAR(X, y, missing_rate)
@@ -25,6 +37,26 @@ def apply_missing_schema(X, y, schema_name, missing_rate):
         raise ValueError(f"Unknown schema: {schema_name}")
 
 def run_single_fold(X, y, train_idx, test_idx, schema_name, missing_rate, n_neighbors, dataset_name):
+    """
+    Run a single cross-validation fold for all methods.
+
+    Splits the training fold into a labeled/unlabeled training set and a validation set,
+    applies the missing data schema, scales features, and evaluates Oracle, Naive,
+    KNN_hard, KNN_proba and EM models on the test set.
+
+    Parameters:
+        X : pd.DataFrame - full feature matrix.
+        y : pd.Series - full target labels.
+        train_idx : np.ndarray - indices of training samples for this fold.
+        test_idx : np.ndarray - indices of test samples for this fold.
+        schema_name : str - missing data schema to apply, one of: 'MCAR', 'MAR1', 'MAR2', 'MNAR'.
+        missing_rate : float - fraction of training labels to mask as unlabeled.
+        n_neighbors : int - number of neighbors used by KNN-based methods.
+        dataset_name : str - dataset name passed to the evaluation method for logging purposes.
+    Returns:
+        list of dict - evaluation results, one per method, each containing metrics,
+        dataset name, missing schema, missing rate and method name.
+    """
 
     X_train_full = X.iloc[train_idx]
     y_train_full = y.iloc[train_idx]
@@ -72,6 +104,20 @@ def run_single_fold(X, y, train_idx, test_idx, schema_name, missing_rate, n_neig
     return results
 
 def run_full_experiment(X, y, dataset_name="SpamDataset", missing_rates=[0.3, 0.5, 0.8]):
+    """
+    Run the full experiment sequentially across all missing rates, schemas and folds.
+
+    Iterates over all combinations of missing rates and missing data schemas
+    using 2-fold stratified cross-validation.
+
+    Parameters:
+        X : pd.DataFrame - full feature matrix.
+        y : pd.Series - full target labels.
+        dataset_name : str - name of the dataset used for logging and result labeling. Default: 'SpamDataset'.
+        missing_rates : list of float - missing rate values to evaluate. Default: [0.3, 0.5, 0.8].
+    Returns:
+        pd.DataFrame - evaluation results for all methods, folds, schemas and missing rates.
+    """
     
     skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
     all_results = []
@@ -90,8 +136,22 @@ def run_full_experiment(X, y, dataset_name="SpamDataset", missing_rates=[0.3, 0.
     return pd.DataFrame(all_results)
 
 
-#parallel version of the full experiment
 def run_full_experiment_parallel(X, y, dataset_name="SpamDataset", missing_rates=[0.3, 0.5, 0.8]):
+    """
+    Run the full experiment in parallel across all missing rates, schemas and folds.
+
+    Constructs a task list for all combinations of missing rates, schemas and 5-fold
+    stratified cross-validation splits, then executes them in parallel using joblib
+    with BLAS thread limits to avoid oversubscription.
+
+    Parameters:
+        X : pd.DataFrame - full feature matrix.
+        y : pd.Series - full target labels.
+        dataset_name : str - name of the dataset used for logging and result labeling. Default: 'SpamDataset'.
+        missing_rates : list of float - missing rate values to evaluate. Default: [0.3, 0.5, 0.8].
+    Returns:
+        pd.DataFrame - evaluation results for all methods, folds, schemas and missing rates.
+    """
     
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     
@@ -116,6 +176,20 @@ def run_full_experiment_parallel(X, y, dataset_name="SpamDataset", missing_rates
     return pd.DataFrame(all_results)
 
 def run_single_fold_wrapper(X, y, task, dataset_name):
+    """
+    Wrapper around run_single_fold for use with joblib Parallel.
+
+    Unpacks a task dictionary and delegates to run_single_fold, then annotates each result with the fold index.
+
+    Parameters:
+        X : pd.DataFrame - full feature matrix.
+        y : pd.Series - full target labels.
+        task : dict - dictionary with keys: 'train_idx', 'test_idx', 'schema', 'c', 'fold_idx'.
+        dataset_name : str - name of the dataset passed through to run_single_fold.
+    Returns:
+        list of dict - evaluation result dictionaries with fold index added.
+    """
+
     res = run_single_fold(X, y, task['train_idx'], task['test_idx'], 
         task['schema'], task['c'], n_neighbors=5, dataset_name=dataset_name)
    
