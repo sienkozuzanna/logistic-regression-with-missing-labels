@@ -44,7 +44,11 @@ Split the data into training and test sets, e.g. using `train_test_split` from `
 Scale the data, e.g. with `MinMaxScaler` from `sklearn` library.
 
 ### 2. Initialize the model
-Import the model class with: `from utils.logistic_lasso_regression_fista import LogisticLassoRegressionFISTA`
+Import the model class with: 
+```python
+from utils.logistic_lasso_regression_fista import LogisticLassoRegressionFISTA
+```
+
 and initialize the model:
 
 ```python
