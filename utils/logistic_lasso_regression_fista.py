@@ -198,8 +198,6 @@ class LogisticLassoRegressionFISTA:
         beta = np.zeros(p)
         intercept = 0.0
 
-        # clue of FISTA: beta_momentum, intercept_momentum - accelerated point used to compute gradient
-        ### w FISTA nie patrzymy tylko na ostatnii punkt, tylko tez na kierunek, w ktorym szlismy wczesniej ??
         beta_momentum = beta.copy()         
         intercept_momentum = intercept      
         t = 1.0 
