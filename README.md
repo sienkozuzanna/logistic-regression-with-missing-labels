@@ -10,9 +10,26 @@ The project consists of three main parts:
 - `utils/missing_schemes.py` - generation of MCAR, MAR1, MAR2 and MNAR missing labels
 - `utils/logistic_lasso_regression_fista.py` - custom FISTA implementation
 - `utils/unlabled_log_reg.py` - semi-supervised, naive and oracle methods
+- - `utils/experiment.py` - full experiment runner (sequential and parallel)
 - `notebooks/` - demonstration notebooks and experiments
 - `data/` - data used in experiments (kept in `.gitignore` and not stored in the repository - can be loaded from `notebooks/fetch_data.ipynb`)
+- `requirements.txt` - list of required Python packages
 - `README.md` - project description and usage instruction
+
+## Requirements
+ 
+Install all dependencies with:
+```bash
+pip install -r requirements.txt
+```
+
+## Notebooks
+ 
+| Notebook | Description |
+|---|---|
+| `notebooks/fetch_data.ipynb` | Downloads and saves all datasets to `data/` — **run this first** |
+| `notebooks/fista_notebook.ipynb` | FISTA experiments and comparison with sklearn |
+| `example_usage.ipynb` | Step-by-step usage guide for all classes |
 
 ## Instructions to run the FISTA Logistic Regression with L1 penalty
 This section describes how to run the custom implmenetation of L1-regularized logistic regression optimized with FISTA algorithm.
@@ -108,4 +125,80 @@ Optionally you can also plot results for visualizations:
   `model.plot(X_test, y_test)`
 - coefficient paths
   `model.plot_coefficients()`
+ 
+## Instructions to simulate missing labels
+ 
+Import the dispatcher function:
+```python
+from utils.missing_schemas import generate_missing_y
+```
 
+```python
+# schema: one of "MCAR", "MAR1", "MAR2", "MNAR"
+# missing_rate: fraction of labels to mask, e.g. 0.5 = 50% missing
+X_miss, y_miss = generate_missing_y(X_train, y_train, scheme="MCAR", missing_rate=0.5)
+# missing labels are indicated by -1 in y_miss
+```
+ 
+Available schemas:
+- **MCAR** — labels are masked uniformly at random, independently of features and target
+- **MAR1** — missingness depends on a single feature (first column)
+- **MAR2** — missingness depends on all features
+- **MNAR** — missingness depends on both features and the true label value
+
+
+## Instructions to run semi-supervised methods
+ 
+Import the models:
+```python
+from utils.unlabeled_log_reg import UnlabeledLogReg, OracleLogReg, NaiveLogReg
+```
+ 
+All models are fit with both a training set (with missing labels) and a validation set for lambda selection.
+ 
+**Oracle** — trained on all labels, no missing data (upper bound):
+```python
+model = OracleLogReg()
+model.fit(X_train_full, y_train_full, X_valid, y_valid)
+```
+ 
+**Naive** — trained only on labeled samples, unlabeled samples are discarded (lower bound):
+```python
+model = NaiveLogReg()
+model.fit(X_train_miss, y_train_miss, X_valid, y_valid)
+```
+ 
+**KNN with hard labels** — missing labels imputed with the predicted class from k-NN:
+```python
+model = UnlabeledLogReg(method="KNN", label_type="hard", n_neighbors=5)
+model.fit(X_train_miss, y_train_miss, X_valid, y_valid)
+```
+ 
+**KNN with soft labels** — missing labels imputed with predicted probabilities from k-NN:
+```python
+model = UnlabeledLogReg(method="KNN", label_type="proba", n_neighbors=5)
+model.fit(X_train_miss, y_train_miss, X_valid, y_valid)
+```
+ 
+**EM** — iterative Expectation-Maximization over labeled and unlabeled samples:
+```python
+model = UnlabeledLogReg(method="EM", max_em_iter=10)
+model.fit(X_train_miss, y_train_miss, X_valid, y_valid)
+```
+ 
+All models share the same evaluation interface:
+```python
+results = model.evaluate(X_test, y_test, dataset_name="MyDataset", missing_schema="MCAR")
+# returns dict with: accuracy, balanced_accuracy, f1_score, roc_auc
+```
+
+## Instructions to run the full experiment
+ 
+```python
+from experiment import run_full_experiment           # sequential
+from experiment import run_full_experiment_parallel  # parallel (recommended for large datasets)
+ 
+results_df = run_full_experiment(X=X, y=y, dataset_name="MyDataset", missing_rates=[0.3, 0.5, 0.8])
+```
+ 
+This evaluates all five methods (Oracle, Naive, KNN_hard, KNN_proba, EM) across all combinations of missing rates, schemas (MCAR, MAR1, MAR2, MNAR) and 5 stratified cross-validation folds, returning a `pd.DataFrame` with all results.
